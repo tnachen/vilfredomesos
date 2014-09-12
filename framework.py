@@ -3,6 +3,8 @@
 import os
 import sys
 import threading
+import signal
+import time
 
 try:
     from mesos.native import MesosExecutorDriver, MesosSchedulerDriver
@@ -15,7 +17,7 @@ except ImportError:
 import task_state
 
 
-TASK_CPUS = 0.1
+TASK_CPUS = 1
 TASK_MEM = 32
 LEADING_ZEROS_COUNT = 5  # appended to task ID to facilitate lexicographical order
 
@@ -97,7 +99,7 @@ class VilfredoMesosScheduler(Scheduler):
             self.tasksRunning -= 1
             self.tasksFinished += 1
 
-def hard_shutdown():
+def hard_shutdown(signal, frame):
     driver.stop()
 
 
