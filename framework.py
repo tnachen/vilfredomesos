@@ -37,7 +37,6 @@ class VilfredoMesosScheduler(Scheduler):
         self.messagesRunningReceived = 0
         self.freeExecutors = collections.deque()
         self.busyExecutors = {}
-        self.shuttingDown = False
     
         # Create EXECUTOR_COUNT executors.
         for idx in range(EXECUTOR_COUNT):
@@ -103,11 +102,6 @@ class VilfredoMesosScheduler(Scheduler):
         return count
     
     def resourceOffers(self, driver, offers):
-        if (self.shuttingDown):
-            self.printExecutorsStatus()
-            self.printTasksStatus()
-            hard_shutdown()
-        
         for offer in offers:
             maxTasks = self.maxTasksForOffer(offer)
             tasks = []
@@ -150,12 +144,11 @@ class VilfredoMesosScheduler(Scheduler):
                 del self.busyExecutors[e_id]
 
 
-def hard_shutdown():
-    driver.stop()
-
-def graceful_shutdown(signal, frame):
+def hard_shutdown(signal, frame):
     print "Shutting down..."
-    vilfredo.shuttingDown = True
+    vilfredo.printExecutorsStatus()
+    vilfredo.printTasksStatus()
+    driver.stop()
 
 
 #
@@ -196,7 +189,7 @@ if __name__ == "__main__":
     framework_thread.start()
 
     print "(Listening for Ctrl-C)"
-    signal.signal(signal.SIGINT, graceful_shutdown)
+    signal.signal(signal.SIGINT, hard_shutdown)
     while framework_thread.is_alive():
         time.sleep(1)
 
