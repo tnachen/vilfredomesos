@@ -2,10 +2,12 @@
 
 import sys
 import os
+import datetime
 import time
 import threading
 import random
 import collections
+import hashlib
 
 try:
     from mesos.native import MesosExecutorDriver, MesosSchedulerDriver
@@ -15,6 +17,9 @@ except ImportError:
     from mesos import Executor, MesosExecutorDriver, MesosSchedulerDriver, Scheduler
     import mesos_pb2
 
+
+UPDATES_COUNT = 100  # number of updates per task life
+RANDOM_BYTES_COUNT = 512  # size of chunk of random bytes read
 
 # Pareto distribution parameters
 PARETO_SHAPE = 2.0
@@ -54,10 +59,33 @@ class ParetoExecutor(Executor):
             update.state = mesos_pb2.TASK_RUNNING
             driver.sendStatusUpdate(update)
             
-            # TODO(alex): generate CPU load.
-            duration = self.nextSample()
-            print "Task duration will be {} min".format(duration)
-            time.sleep(duration)
+            # Determine task duration.
+            taskDuration = self.nextSample()
+            print "Task duration will be {} min".format(taskDuration)
+            taskDuration *= 60.0  # convert duration to seconds
+            
+            # Determine the period between sending updates.
+            periodDuration = taskDuration / UPDATES_COUNT
+
+            # Simulate running task with sending regular updates.
+            taskStarted = datetime.datetime.now()
+            while (taskDuration > (datetime.datetime.now() -
+                taskStarted).total_seconds()):
+                
+                # Period between updates.
+                msg = ""
+                periodStarted = datetime.datetime.now()
+                while (periodDuration > (datetime.datetime.now() -
+                    periodStarted).total_seconds()):
+
+                    # Generate some CPU load.
+                    token = hashlib.sha512()
+                    token.update(os.urandom(RANDOM_BYTES_COUNT))
+                    msg.append(token.hexdigest()).append(token.hexdigest()). \
+                        append(token.hexdigest()).append(token.hexdigest())
+
+                # Send a status update to the scheduler.
+                # TODO(alex): use executor.sendFrameworkMessage()
         
             # Mark executor as free after finishing the task but before
             # sending the update.
