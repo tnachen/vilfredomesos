@@ -5,6 +5,7 @@ import sys
 import threading
 import signal
 import time
+import collections
 
 try:
     from mesos.native import MesosExecutorDriver, MesosSchedulerDriver
@@ -17,22 +18,34 @@ except ImportError:
 import task_state
 
 
-TASK_CPUS = 1
+TASK_CPUS = 0.5
 TASK_MEM = 32
 LEADING_ZEROS_COUNT = 5  # appended to task ID to facilitate lexicographical order
+EXECUTOR_COUNT = 24  # number of executors in this framework
+TASK_SEPARATOR = "@"
 
 
 class VilfredoMesosScheduler(Scheduler):
     def __init__(self, paretoExecutor):
         self.paretoExecutor = paretoExecutor
         self.tasksCreated = 0
-        self.tasksRunning = 0
         self.tasksFailed = 0
         self.tasksKilled = 0
         self.tasksLost = 0
         self.tasksFinished = 0
-        self.messagesSent = 0
         self.messagesReceived = 0
+        self.messagesRunningReceived = 0
+        self.freeExecutors = collections.deque()
+        self.busyExecutors = {}
+        self.shuttingDown = False
+    
+        # Create EXECUTOR_COUNT executors.
+        for idx in range(EXECUTOR_COUNT):
+            e = mesos_pb2.ExecutorInfo()
+            e.CopyFrom(paretoExecutor)
+            e.executor_id.value += "-{}".format(idx)
+            self.freeExecutors.append(e)
+        
     
     def registered(self, driver, frameworkId, masterInfo):
         print "Registered with framework ID [{}]".format(frameworkId.value)
@@ -55,10 +68,28 @@ class VilfredoMesosScheduler(Scheduler):
         
         return task
     
+    def printExecutorsStatus(self):
+        print "Executors: {} free, {} busy".format(
+            len(self.freeExecutors), len(self.busyExecutors))
+
+    def printTasksStatus(self):
+        print "Tasks: {} created, {} finished ({} failed, {} lost, {} killed)".format(
+            self.tasksCreated, self.tasksFinished, self.tasksFailed,
+            self.tasksLost, self.tasksKilled)
+    
     def makeParetoTask(self, offer):
+        if (not self.freeExecutors):
+            raise Exception("Cannot create a task: no free executors")
         task = self.makeTaskPrototype(offer)
         task.name = "Pareto task {}".format(task.task_id.value)
-        task.executor.MergeFrom(self.paretoExecutor)
+        
+        # Take a free exeutor and mark it as busy.
+        # TODO(alex): don't move executor refs around, use indices instead.
+        e = self.freeExecutors.popleft()
+        self.busyExecutors[e.executor_id.value] = e
+        task.task_id.value += " " + TASK_SEPARATOR + " " + e.executor_id.value
+        
+        task.executor.MergeFrom(e)
         return task
     
     def maxTasksForOffer(self, offer):
@@ -72,22 +103,33 @@ class VilfredoMesosScheduler(Scheduler):
         return count
     
     def resourceOffers(self, driver, offers):
+        if (self.shuttingDown):
+            self.printExecutorsStatus()
+            self.printTasksStatus()
+            hard_shutdown()
+        
         for offer in offers:
             maxTasks = self.maxTasksForOffer(offer)
             tasks = []
             
             for i in range(maxTasks):
+                # If we have no free executors, launch tasks and quit
+                if (not self.freeExecutors):
+                    driver.launchTasks(offer.id, tasks)
+                    return
+                
                 task = self.makeParetoTask(offer)
                 tasks.append(task)
 
             driver.launchTasks(offer.id, tasks)
     
     def statusUpdate(self, driver, update):
+        self.messagesReceived += 1
         stateName = task_state.decode[update.state]
         print "Task [{}] is in state [{}]".format(update.task_id.value, stateName)
         
         if update.state == mesos_pb2.TASK_RUNNING:
-            self.tasksRunning += 1
+            self.messagesRunningReceived += 1
         elif update.state == mesos_pb2.TASK_FAILED:
             self.tasksFailed +=1
         elif update.state == mesos_pb2.TASK_KILLED:
@@ -95,12 +137,23 @@ class VilfredoMesosScheduler(Scheduler):
         elif update.state == mesos_pb2.TASK_LOST:
             self.tasksLost +=1
 
-        if self.tasksRunning > 0 and update.state > 1: # Terminal state
-            self.tasksRunning -= 1
+        if update.state > 1: # Terminal state
             self.tasksFinished += 1
 
-def hard_shutdown(signal, frame):
+            # Release the corresponding executor.
+            e_id = update.task_id.value.split(TASK_SEPARATOR)[-1].strip()
+            if (e_id in self.busyExecutors):
+                e = self.busyExecutors[e_id]
+                self.freeExecutors.append(e)
+                del self.busyExecutors[e_id]
+
+
+def hard_shutdown():
     driver.stop()
+
+def graceful_shutdown(signal, frame):
+    print "Shutting down..."
+    vilfredo.shuttingDown = True
 
 
 #
@@ -108,7 +161,7 @@ def hard_shutdown(signal, frame):
 #
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print "Usage: {} master".format(sys.argv[0])
+        print "Usage: {} master_ip:port".format(sys.argv[0])
         sys.exit(1)
     
     baseURI = os.path.dirname(os.path.abspath(__file__))
@@ -141,7 +194,7 @@ if __name__ == "__main__":
     framework_thread.start()
 
     print "(Listening for Ctrl-C)"
-    signal.signal(signal.SIGINT, hard_shutdown)
+    signal.signal(signal.SIGINT, graceful_shutdown)
     while framework_thread.is_alive():
         time.sleep(1)
 
