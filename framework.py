@@ -113,15 +113,17 @@ class VilfredoMesosScheduler(Scheduler):
             tasks = []
             
             for i in range(maxTasks):
-                # If we have no free executors, launch tasks and quit
-                if (not self.freeExecutors):
-                    driver.launchTasks(offer.id, tasks)
-                    return
-                
-                task = self.makeParetoTask(offer)
-                tasks.append(task)
+                # If we have no free executors, go to scheduling.
+                if (self.freeExecutors):
+                    task = self.makeParetoTask(offer)
+                    tasks.append(task)
+                else:
+                    break
 
-            driver.launchTasks(offer.id, tasks)
+            if (tasks):
+                driver.launchTasks(offer.id, tasks)
+            else:
+                driver.declineOffer(offer.id)
     
     def statusUpdate(self, driver, update):
         self.messagesReceived += 1
