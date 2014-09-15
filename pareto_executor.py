@@ -4,6 +4,8 @@ import sys
 import os
 import time
 import threading
+import random
+import collections
 
 try:
     from mesos.native import MesosExecutorDriver, MesosSchedulerDriver
@@ -14,10 +16,23 @@ except ImportError:
     import mesos_pb2
 
 
+# Pareto distribution parameters
+PARETO_SHAPE = 2.0
+PARETO_SCALE = 10.0  # in minutes
+
+
 class ParetoExecutor(Executor):
     def __init__(self):
         self.lock = threading.Lock()
-        self.tasksRunning = False;
+        self.tasksRunning = False
+        random.seed()
+    
+    def paretoInverse(self, shape, scale, uniformSaple):
+        return scale / pow(1.0 - uniformSaple, 1.0 / shape)
+    
+    def nextSample(self):
+        r = random.random()
+        return self.paretoInverse(PARETO_SHAPE, PARETO_SCALE, r)
     
     def registered(self, driver, executorInfo, frameworkInfo, slaveInfo):
         self.id = executorInfo.executor_id.value;
@@ -39,9 +54,10 @@ class ParetoExecutor(Executor):
             update.state = mesos_pb2.TASK_RUNNING
             driver.sendStatusUpdate(update)
             
-            # TODO(alex): choose task duration according to pareto distribution.
             # TODO(alex): generate CPU load.
-            time.sleep(5)
+            duration = self.nextSample()
+            print "Task duration will be {} min".format(duration)
+            time.sleep(duration)
         
             # Mark executor as free after finishing the task but before
             # sending the update.
