@@ -81,11 +81,14 @@ class ParetoExecutor(Executor):
                     # Generate some CPU load.
                     token = hashlib.sha512()
                     token.update(os.urandom(RANDOM_BYTES_COUNT))
-                    msg.append(token.hexdigest()).append(token.hexdigest()). \
-                        append(token.hexdigest()).append(token.hexdigest())
+                    msg = "".join([token.hexdigest()] * 4)
 
                 # Send a status update to the scheduler.
-                # TODO(alex): use executor.sendFrameworkMessage()
+                update = mesos_pb2.TaskStatus()
+                update.task_id.value = task.task_id.value
+                update.state = mesos_pb2.TASK_RUNNING
+                update.data = msg
+                driver.sendStatusUpdate(update)
         
             # Mark executor as free after finishing the task but before
             # sending the update.

@@ -4,6 +4,7 @@ import os
 import sys
 import threading
 import signal
+import datetime
 import time
 import collections
 
@@ -25,6 +26,14 @@ EXECUTOR_COUNT = 24  # number of executors in this framework
 TASK_SEPARATOR = "@"
 
 
+class TaskStats:
+    def __init__(self, executorID):
+        self.executorID = executorID
+        self.started = datetime.datetime.now()
+        self.duration = datetime.timedelta()
+        self.updatesReceived = 0
+
+
 class VilfredoMesosScheduler(Scheduler):
     def __init__(self, paretoExecutor):
         self.paretoExecutor = paretoExecutor
@@ -33,6 +42,7 @@ class VilfredoMesosScheduler(Scheduler):
         self.tasksKilled = 0
         self.tasksLost = 0
         self.tasksFinished = 0
+        self.tasksStats = {}
         self.messagesReceived = 0
         self.messagesRunningReceived = 0
         self.freeExecutors = collections.deque()
@@ -72,12 +82,26 @@ class VilfredoMesosScheduler(Scheduler):
             len(self.freeExecutors), len(self.busyExecutors))
 
     def printTasksStatus(self):
-        print "Tasks: {} created, {} finished ({} failed, {} lost, {} killed)".format(
-            self.tasksCreated, self.tasksFinished, self.tasksFailed,
-            self.tasksLost, self.tasksKilled)
-    
+        print "Tasks: {} created, {} launched, {} finished ({} failed, {} lost, {} killed)". \
+            format(self.tasksCreated, len(self.tasksStats), self.tasksFinished, \
+                   self.tasksFailed, self.tasksLost, self.tasksKilled)
+        
+        # Extract task durations and number of updates received for completed
+        # tasks (as measured by the scheduler) and print stats.
+        durations = [s.duration for s in self.tasksStats.itervalues() \
+                     if s.duration.total_seconds() > 1]
+        updatesCount = [s.updatesReceived for s in self.tasksStats.itervalues() \
+                        if s.duration.total_seconds() > 0]
+        if len(durations) > 0:
+            print "Task duration: {} mean, {} min, {} max". \
+                format(sum(durations, datetime.timedelta()) / len(durations), \
+                       min(durations), max(durations))
+            print "Updates received per task: {} mean, {} min, {} max". \
+                format(sum(updatesCount) / len(updatesCount), \
+                       min(updatesCount), max(updatesCount))
+
     def makeParetoTask(self, offer):
-        if (not self.freeExecutors):
+        if not self.freeExecutors:
             raise Exception("Cannot create a task: no free executors")
         task = self.makeTaskPrototype(offer)
         task.name = "Pareto task {}".format(task.task_id.value)
@@ -114,7 +138,7 @@ class VilfredoMesosScheduler(Scheduler):
                 else:
                     break
 
-            if (tasks):
+            if tasks:
                 driver.launchTasks(offer.id, tasks)
             else:
                 driver.declineOffer(offer.id)
@@ -122,10 +146,17 @@ class VilfredoMesosScheduler(Scheduler):
     def statusUpdate(self, driver, update):
         self.messagesReceived += 1
         stateName = task_state.decode[update.state]
-        print "Task [{}] is in state [{}]".format(update.task_id.value, stateName)
+        taskID = update.task_id.value
+        executorID = taskID.split(TASK_SEPARATOR)[-1].strip()
+        print "Task [{}] is in state [{}]".format(taskID, stateName)
         
         if update.state == mesos_pb2.TASK_RUNNING:
             self.messagesRunningReceived += 1
+            if update.HasField("data"):
+                self.tasksStats[taskID].updatesReceived += 1
+            else:
+                s = TaskStats(executorID)
+                self.tasksStats[taskID] = s
         elif update.state == mesos_pb2.TASK_FAILED:
             self.tasksFailed +=1
         elif update.state == mesos_pb2.TASK_KILLED:
@@ -135,19 +166,23 @@ class VilfredoMesosScheduler(Scheduler):
 
         if update.state > 1: # Terminal state
             self.tasksFinished += 1
+            self.tasksStats[taskID].duration = \
+                datetime.datetime.now() - self.tasksStats[taskID].started
 
             # Release the corresponding executor.
-            e_id = update.task_id.value.split(TASK_SEPARATOR)[-1].strip()
-            if (e_id in self.busyExecutors):
-                e = self.busyExecutors[e_id]
+            if executorID in self.busyExecutors:
+                e = self.busyExecutors[executorID]
                 self.freeExecutors.append(e)
-                del self.busyExecutors[e_id]
+                del self.busyExecutors[executorID]
 
 
 def hard_shutdown(signal, frame):
     print "Shutting down..."
-    vilfredo.printExecutorsStatus()
-    vilfredo.printTasksStatus()
+    try:
+        vilfredo.printExecutorsStatus()
+        vilfredo.printTasksStatus()
+    except:
+        print "Error while calculating statistics"
     driver.stop()
 
 
