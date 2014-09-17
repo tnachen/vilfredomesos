@@ -166,8 +166,9 @@ class VilfredoMesosScheduler(Scheduler):
 
         if update.state > 1: # Terminal state
             self.tasksFinished += 1
-            self.tasksStats[taskID].duration = \
-                datetime.datetime.now() - self.tasksStats[taskID].started
+            if taskID in self.tasksStats:
+                self.tasksStats[taskID].duration = \
+                    datetime.datetime.now() - self.tasksStats[taskID].started
 
             # Release the corresponding executor.
             if executorID in self.busyExecutors:
