@@ -33,6 +33,21 @@ class TaskStats:
         self.duration = datetime.timedelta()
         self.updatesReceived = 0
 
+class SlaveExecutors:
+    def __init__(self, baseExecutor):
+        self.baseExecutor = baseExecutor
+        self.freeExecutors = collections.deque()
+        self.busyExecutors = {}
+        
+        # Create EXECUTOR_COUNT executors.
+        for idx in range(EXECUTOR_COUNT):
+            e = mesos_pb2.ExecutorInfo()
+            e.CopyFrom(baseExecutor)
+            e.executor_id.value += "-{}".format(idx)
+            self.freeExecutors.append(e)
+
+        # TODO(alex): move claim / release executor logics here.
+
 
 class VilfredoMesosScheduler(Scheduler):
     def __init__(self, paretoExecutor):
@@ -45,16 +60,7 @@ class VilfredoMesosScheduler(Scheduler):
         self.tasksStats = {}
         self.messagesReceived = 0
         self.messagesRunningReceived = 0
-        self.freeExecutors = collections.deque()
-        self.busyExecutors = {}
-    
-        # Create EXECUTOR_COUNT executors.
-        for idx in range(EXECUTOR_COUNT):
-            e = mesos_pb2.ExecutorInfo()
-            e.CopyFrom(paretoExecutor)
-            e.executor_id.value += "-{}".format(idx)
-            self.freeExecutors.append(e)
-        
+        self.slaveExecutors = {}
     
     def registered(self, driver, frameworkId, masterInfo):
         print "Registered with framework ID [{}]".format(frameworkId.value)
@@ -78,8 +84,12 @@ class VilfredoMesosScheduler(Scheduler):
         return task
     
     def printExecutorsStatus(self):
-        print "Executors: {} free, {} busy".format(
-            len(self.freeExecutors), len(self.busyExecutors))
+        freeExecutorsCount = \
+            sum([len(s.freeExecutors) for s in self.slaveExecutors.itervalues()])
+        busyExecutorsCount = \
+            sum([len(s.busyExecutors) for s in self.slaveExecutors.itervalues()])
+
+        print "Executors: {} free, {} busy".format(freeExecutorsCount, busyExecutorsCount)
 
     def printTasksStatus(self):
         print "Tasks: {} created, {} launched, {} finished ({} failed, {} lost, {} killed)". \
@@ -101,15 +111,16 @@ class VilfredoMesosScheduler(Scheduler):
                        min(updatesCount), max(updatesCount))
 
     def makeParetoTask(self, offer):
-        if not self.freeExecutors:
+        slaveID = offer.slave_id.value
+        if not self.slaveExecutors[slaveID].freeExecutors:
             raise Exception("Cannot create a task: no free executors")
         task = self.makeTaskPrototype(offer)
         task.name = "Pareto task {}".format(task.task_id.value)
         
         # Take a free exeutor and mark it as busy.
         # TODO(alex): don't move executor refs around, use indices instead.
-        e = self.freeExecutors.popleft()
-        self.busyExecutors[e.executor_id.value] = e
+        e = self.slaveExecutors[slaveID].freeExecutors.popleft()
+        self.slaveExecutors[slaveID].busyExecutors[e.executor_id.value] = e
         task.task_id.value += " " + TASK_SEPARATOR + " " + e.executor_id.value
         
         task.executor.MergeFrom(e)
@@ -127,12 +138,18 @@ class VilfredoMesosScheduler(Scheduler):
     
     def resourceOffers(self, driver, offers):
         for offer in offers:
+            slaveID = offer.slave_id.value
+            # Check if a new slave starts sending offers.
+            if not slaveID in self.slaveExecutors:
+                self.slaveExecutors[slaveID] = \
+                    SlaveExecutors(self.paretoExecutor)
+            
             maxTasks = self.maxTasksForOffer(offer)
             tasks = []
             
             for i in range(maxTasks):
                 # If we have no free executors, go to scheduling.
-                if (self.freeExecutors):
+                if (self.slaveExecutors[slaveID].freeExecutors):
                     task = self.makeParetoTask(offer)
                     tasks.append(task)
                 else:
@@ -147,6 +164,7 @@ class VilfredoMesosScheduler(Scheduler):
         self.messagesReceived += 1
         stateName = task_state.decode[update.state]
         taskID = update.task_id.value
+        slaveID = update.slave_id.value
         executorID = taskID.split(TASK_SEPARATOR)[-1].strip()
         print "Task [{}] is in state [{}]".format(taskID, stateName)
         
@@ -171,10 +189,10 @@ class VilfredoMesosScheduler(Scheduler):
                     datetime.datetime.now() - self.tasksStats[taskID].started
 
             # Release the corresponding executor.
-            if executorID in self.busyExecutors:
-                e = self.busyExecutors[executorID]
-                self.freeExecutors.append(e)
-                del self.busyExecutors[executorID]
+            if executorID in self.slaveExecutors[slaveID].busyExecutors:
+                e = self.slaveExecutors[slaveID].busyExecutors[executorID]
+                self.slaveExecutors[slaveID].freeExecutors.append(e)
+                del self.slaveExecutors[slaveID].busyExecutors[executorID]
 
 
 def hard_shutdown(signal, frame):
