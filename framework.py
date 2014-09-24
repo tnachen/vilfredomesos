@@ -61,6 +61,7 @@ class VilfredoMesosScheduler(Scheduler):
         self.messagesReceived = 0
         self.messagesRunningReceived = 0
         self.slaveExecutors = {}
+        self.updateTimestamps = {}
     
     def registered(self, driver, frameworkId, masterInfo):
         print "Registered with framework ID [{}]".format(frameworkId.value)
@@ -116,6 +117,19 @@ class VilfredoMesosScheduler(Scheduler):
                 format(sum(updatesCount) / len(updatesCount), \
                        min(updatesCount), max(updatesCount))
 
+    def printUpdatesStatus(self):
+         # A collection of durations between statusUpdate() invokations.
+        updateDurations = {}
+        for idx in range(2, len(self.updateTimestamps)):
+            updateDurations.append((self.updateTimestamps[idx] - \
+                                    self.updateTimestamps[idx - 1]).total_seconds())
+
+        # Print some statistics about durations.
+        if len(updateDurations) > 0:
+            print "Duration between status updates: {} mean, {} min, {} max". \
+                format(sum(updateDurations, datetime.timedelta()) / len(updateDurations), \
+                       min(updateDurations), max(updateDurations))
+
     def makeParetoTask(self, offer):
         slaveID = offer.slave_id.value
         if not self.slaveExecutors[slaveID].freeExecutors:
@@ -167,6 +181,7 @@ class VilfredoMesosScheduler(Scheduler):
                 driver.declineOffer(offer.id)
     
     def statusUpdate(self, driver, update):
+        self.updateTimestamps.append(datetime.datetime.now())
         self.messagesReceived += 1
         stateName = task_state.decode[update.state]
         taskID = update.task_id.value
@@ -207,6 +222,7 @@ def hard_shutdown(signal, frame):
         vilfredo.printSlavesStatus()
         vilfredo.printExecutorsStatus()
         vilfredo.printTasksStatus()
+        vilfredo.printUpdatesStatus()
     except:
         print "Error while calculating statistics"
     driver.stop()
