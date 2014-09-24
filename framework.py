@@ -61,7 +61,7 @@ class VilfredoMesosScheduler(Scheduler):
         self.messagesReceived = 0
         self.messagesRunningReceived = 0
         self.slaveExecutors = {}
-        self.updateTimestamps = {}
+        self.updateTimestamps = []
     
     def registered(self, driver, frameworkId, masterInfo):
         print "Registered with framework ID [{}]".format(frameworkId.value)
