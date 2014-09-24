@@ -119,7 +119,7 @@ class VilfredoMesosScheduler(Scheduler):
 
     def printUpdatesStats(self):
          # A collection of durations between statusUpdate() invokations.
-        updateDurations = {}
+        updateDurations = []
         for idx in range(2, len(self.updateTimestamps)):
             updateDurations.append((self.updateTimestamps[idx] - \
                                     self.updateTimestamps[idx - 1]).total_seconds())
@@ -224,7 +224,7 @@ def hard_shutdown(signal, frame):
         vilfredo.printTasksStats()
         vilfredo.printUpdatesStats()
     except Exception, e:
-        print "Error while calculating statistics: \"{}\"".format(str(e))
+        print "Error while calculating statistics: {}".format(str(e))
     except:
         print "Error while calculating statistics"
     driver.stop()
