@@ -84,13 +84,13 @@ class VilfredoMesosScheduler(Scheduler):
         
         return task
     
-    def printSlavesStatus(self):
+    def printSlavesStats(self):
         print "Slaves: {} total".format(len(self.slaveExecutors))
         for sid, execs in self.slaveExecutors.iteritems():
             print "    {}: {} free, {} busy executors". \
                 format(sid, len(execs.freeExecutors), len(execs.busyExecutors))
     
-    def printExecutorsStatus(self):
+    def printExecutorsStats(self):
         freeExecutorsCount = \
             sum([len(s.freeExecutors) for s in self.slaveExecutors.itervalues()])
         busyExecutorsCount = \
@@ -98,7 +98,7 @@ class VilfredoMesosScheduler(Scheduler):
 
         print "Executors: {} free, {} busy".format(freeExecutorsCount, busyExecutorsCount)
 
-    def printTasksStatus(self):
+    def printTasksStats(self):
         print "Tasks: {} created, {} launched, {} finished ({} failed, {} lost, {} killed)". \
             format(self.tasksCreated, len(self.tasksStats), self.tasksFinished, \
                    self.tasksFailed, self.tasksLost, self.tasksKilled)
@@ -117,7 +117,7 @@ class VilfredoMesosScheduler(Scheduler):
                 format(sum(updatesCount) / len(updatesCount), \
                        min(updatesCount), max(updatesCount))
 
-    def printUpdatesStatus(self):
+    def printUpdatesStats(self):
          # A collection of durations between statusUpdate() invokations.
         updateDurations = {}
         for idx in range(2, len(self.updateTimestamps)):
@@ -219,10 +219,10 @@ class VilfredoMesosScheduler(Scheduler):
 def hard_shutdown(signal, frame):
     print "Shutting down..."
     try:
-        vilfredo.printSlavesStatus()
-        vilfredo.printExecutorsStatus()
-        vilfredo.printTasksStatus()
-        vilfredo.printUpdatesStatus()
+        vilfredo.printSlavesStats()
+        vilfredo.printExecutorsStats()
+        vilfredo.printTasksStats()
+        vilfredo.printUpdatesStats()
     except:
         print "Error while calculating statistics"
     driver.stop()
