@@ -83,6 +83,12 @@ class VilfredoMesosScheduler(Scheduler):
         
         return task
     
+    def printSlavesStatus(self):
+        print "Slaves: {} total".format(len(self.slaveExecutors))
+        for sid, execs in self.slaveExecutors.iteritems():
+            print "    {}: {} free, {} busy executors". \
+                format(sid, len(execs.freeExecutors), len(execs.busyExecutors))
+    
     def printExecutorsStatus(self):
         freeExecutorsCount = \
             sum([len(s.freeExecutors) for s in self.slaveExecutors.itervalues()])
@@ -198,6 +204,7 @@ class VilfredoMesosScheduler(Scheduler):
 def hard_shutdown(signal, frame):
     print "Shutting down..."
     try:
+        vilfredo.printSlavesStatus()
         vilfredo.printExecutorsStatus()
         vilfredo.printTasksStatus()
     except:
