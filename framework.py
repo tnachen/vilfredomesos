@@ -126,8 +126,8 @@ class VilfredoMesosScheduler(Scheduler):
 
         # Print some statistics about durations.
         if len(updateDurations) > 0:
-            print "Duration between status updates: {} mean, {} min, {} max". \
-                format(sum(updateDurations, datetime.timedelta()) / len(updateDurations), \
+            print "Duration between status updates (s): {} mean, {} min, {} max". \
+                format(sum(updateDurations) / len(updateDurations), \
                        min(updateDurations), max(updateDurations))
 
     def makeParetoTask(self, offer):
