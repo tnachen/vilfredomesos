@@ -223,6 +223,8 @@ def hard_shutdown(signal, frame):
         vilfredo.printExecutorsStats()
         vilfredo.printTasksStats()
         vilfredo.printUpdatesStats()
+    except Exception, e:
+        print "Error while calculating statistics: \"{}\"".format(str(e))
     except:
         print "Error while calculating statistics"
     driver.stop()
