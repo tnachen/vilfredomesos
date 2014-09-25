@@ -158,8 +158,8 @@ class VilfredoMesosScheduler(Scheduler):
     
     def maxTasksForOffer(self, offer):
         count = 0
-        cpus = next(rsc.scalar.value for rsc in offer.resources if rsc.name == "cpus")
-        mem = next(rsc.scalar.value for rsc in offer.resources if rsc.name == "mem")
+        cpus = sum([rsc.scalar.value for rsc in offer.resources if rsc.name == "cpus"])
+        mem = sum([rsc.scalar.value for rsc in offer.resources if rsc.name == "mem"])
         while cpus >= TASK_CPUS and mem >= TASK_MEM:
             count += 1
             cpus -= TASK_CPUS
