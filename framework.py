@@ -24,6 +24,7 @@ TASK_MEM = 32
 LEADING_ZEROS_COUNT = 5  # appended to task ID to facilitate lexicographical order
 EXECUTOR_COUNT = 24  # number of executors in this framework
 TASK_SEPARATOR = "@"
+TIMESTAMP_CACHE_SIZE = 100000000
 
 
 class TaskStats:
@@ -63,12 +64,35 @@ class VilfredoMesosScheduler(Scheduler):
         self.slaveExecutors = {}
         self.updateTimestamps = []
         self.frameworkStarted = datetime.datetime.now()
+        if not os.path.exists("stats"): os.makedirs("stats")
+        self.updateDurationsFilename = \
+            "stats/update_durations_{}.txt".format(self.frameworkStarted)
     
     def registered(self, driver, frameworkId, masterInfo):
         print "Registered with framework ID [{}]".format(frameworkId.value)
 
     def now(self):
         return datetime.datetime.now()
+
+    def flushUpdateDurations(self):
+        # A collection of durations between statusUpdate() invokations.
+        updateDurations = []
+        for idx in range(2, len(self.updateTimestamps)):
+            updateDurations.append((self.updateTimestamps[idx] - \
+                                    self.updateTimestamps[idx - 1]).total_seconds())
+
+        # Write durations in the file.
+        with open(self.updateDurationsFilename, 'a') as f:
+            for item in updateDurations:
+                print >> f, item
+
+        # Clean the cache with timestamps.
+        self.updateTimestamps = []
+
+    def recordUpdateTimestamp(self):
+        self.updateTimestamps.append(self.now())
+        if (len(self.updateTimestamps) > TIMESTAMP_CACHE_SIZE):
+            self.flushUpdateDurations
 
     def makeTaskPrototype(self, offer):
         task = mesos_pb2.TaskInfo()
@@ -128,11 +152,11 @@ class VilfredoMesosScheduler(Scheduler):
                        min(updatesCount), max(updatesCount))
 
     def printUpdatesStats(self):
-         # A collection of durations between statusUpdate() invokations.
-        updateDurations = []
-        for idx in range(2, len(self.updateTimestamps)):
-            updateDurations.append((self.updateTimestamps[idx] - \
-                                    self.updateTimestamps[idx - 1]).total_seconds())
+        self.flushUpdateDurations()
+
+        # Load update durations from the file.
+        with open(self.updateDurationsFilename, 'r') as f:
+            updateDurations = map(float, f)
 
         # Print some statistics about durations.
         if len(updateDurations) > 0:
@@ -191,7 +215,7 @@ class VilfredoMesosScheduler(Scheduler):
                 driver.declineOffer(offer.id)
     
     def statusUpdate(self, driver, update):
-        self.updateTimestamps.append(self.now())
+        self.recordUpdateTimestamp()
         self.messagesReceived += 1
         stateName = task_state.decode[update.state]
         taskID = update.task_id.value
