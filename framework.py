@@ -62,10 +62,14 @@ class VilfredoMesosScheduler(Scheduler):
         self.messagesRunningReceived = 0
         self.slaveExecutors = {}
         self.updateTimestamps = []
+        self.frameworkStarted = datetime.datetime.now()
     
     def registered(self, driver, frameworkId, masterInfo):
         print "Registered with framework ID [{}]".format(frameworkId.value)
-    
+
+    def now(self):
+        return datetime.datetime.now()
+
     def makeTaskPrototype(self, offer):
         task = mesos_pb2.TaskInfo()
         tid = self.tasksCreated
@@ -83,13 +87,19 @@ class VilfredoMesosScheduler(Scheduler):
         mem.scalar.value = TASK_MEM
         
         return task
-    
+
+    def printGeneralStats(self):
+        frameworkStopped = self.now()
+        print "Framework lifetime is {}, started at {}, stopped at {}".\
+            format(frameworkStopped - self.frameworkStarted,
+                self.frameworkStarted, frameworkStopped)
+
     def printSlavesStats(self):
         print "Slaves: {} total".format(len(self.slaveExecutors))
         for sid, execs in self.slaveExecutors.iteritems():
             print "    {}: {} free, {} busy executors". \
                 format(sid, len(execs.freeExecutors), len(execs.busyExecutors))
-    
+
     def printExecutorsStats(self):
         freeExecutorsCount = \
             sum([len(s.freeExecutors) for s in self.slaveExecutors.itervalues()])
@@ -181,13 +191,13 @@ class VilfredoMesosScheduler(Scheduler):
                 driver.declineOffer(offer.id)
     
     def statusUpdate(self, driver, update):
-        self.updateTimestamps.append(datetime.datetime.now())
+        self.updateTimestamps.append(self.now())
         self.messagesReceived += 1
         stateName = task_state.decode[update.state]
         taskID = update.task_id.value
         slaveID = update.slave_id.value
         executorID = taskID.split(TASK_SEPARATOR)[-1].strip()
-        print "Task [{}] is in state [{}]".format(taskID, stateName)
+        print "{}: Task [{}] is in state [{}]".format(self.now(), taskID, stateName)
         
         if update.state == mesos_pb2.TASK_RUNNING:
             self.messagesRunningReceived += 1
@@ -207,7 +217,7 @@ class VilfredoMesosScheduler(Scheduler):
             self.tasksFinished += 1
             if taskID in self.tasksStats:
                 self.tasksStats[taskID].duration = \
-                    datetime.datetime.now() - self.tasksStats[taskID].started
+                    self.now() - self.tasksStats[taskID].started
 
             # Release the corresponding executor.
             if executorID in self.slaveExecutors[slaveID].busyExecutors:
@@ -219,6 +229,7 @@ class VilfredoMesosScheduler(Scheduler):
 def hard_shutdown(signal, frame):
     print "Shutting down..."
     try:
+        vilfredo.printGeneralStats()
         vilfredo.printSlavesStats()
         vilfredo.printExecutorsStats()
         vilfredo.printTasksStats()
