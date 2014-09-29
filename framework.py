@@ -19,7 +19,7 @@ except ImportError:
 import task_state
 
 
-TASK_CPUS = 0.5
+TASK_CPUS = 0.1
 TASK_MEM = 32
 LEADING_ZEROS_COUNT = 5  # appended to task ID to facilitate lexicographical order
 EXECUTOR_COUNT = 24  # number of executors in this framework
@@ -39,7 +39,7 @@ class SlaveExecutors:
         self.baseExecutor = baseExecutor
         self.freeExecutors = collections.deque()
         self.busyExecutors = {}
-        
+
         # Create EXECUTOR_COUNT executors.
         for idx in range(EXECUTOR_COUNT):
             e = mesos_pb2.ExecutorInfo()
@@ -67,7 +67,7 @@ class VilfredoMesosScheduler(Scheduler):
         if not os.path.exists("stats"): os.makedirs("stats")
         self.updateDurationsFilename = \
             "stats/update_durations_{}.txt".format(self.frameworkStarted)
-    
+
     def registered(self, driver, frameworkId, masterInfo):
         print "Registered with framework ID [{}]".format(frameworkId.value)
 
@@ -100,7 +100,7 @@ class VilfredoMesosScheduler(Scheduler):
         self.tasksCreated += 1
         task.task_id.value = str(tid).zfill(LEADING_ZEROS_COUNT)
         task.slave_id.value = offer.slave_id.value
-        
+
         cpus = task.resources.add()
         cpus.name = "cpus"
         cpus.type = mesos_pb2.Value.SCALAR
@@ -109,7 +109,7 @@ class VilfredoMesosScheduler(Scheduler):
         mem.name = "mem"
         mem.type = mesos_pb2.Value.SCALAR
         mem.scalar.value = TASK_MEM
-        
+
         return task
 
     def printGeneralStats(self):
@@ -136,7 +136,7 @@ class VilfredoMesosScheduler(Scheduler):
         print "Tasks: {} created, {} launched, {} finished ({} failed, {} lost, {} killed)". \
             format(self.tasksCreated, len(self.tasksStats), self.tasksFinished, \
                    self.tasksFailed, self.tasksLost, self.tasksKilled)
-        
+
         # Extract task durations and number of updates received for completed
         # tasks (as measured by the scheduler) and print stats.
         durations = [s.duration for s in self.tasksStats.itervalues() \
@@ -170,16 +170,16 @@ class VilfredoMesosScheduler(Scheduler):
             raise Exception("Cannot create a task: no free executors")
         task = self.makeTaskPrototype(offer)
         task.name = "Pareto task {}".format(task.task_id.value)
-        
+
         # Take a free exeutor and mark it as busy.
         # TODO(alex): don't move executor refs around, use indices instead.
         e = self.slaveExecutors[slaveID].freeExecutors.popleft()
         self.slaveExecutors[slaveID].busyExecutors[e.executor_id.value] = e
         task.task_id.value += " " + TASK_SEPARATOR + " " + e.executor_id.value
-        
+
         task.executor.MergeFrom(e)
         return task
-    
+
     def maxTasksForOffer(self, offer):
         count = 0
         cpus = sum([rsc.scalar.value for rsc in offer.resources if rsc.name == "cpus"])
@@ -189,7 +189,7 @@ class VilfredoMesosScheduler(Scheduler):
             cpus -= TASK_CPUS
             mem -= TASK_MEM
         return count
-    
+
     def resourceOffers(self, driver, offers):
         for offer in offers:
             slaveID = offer.slave_id.value
@@ -197,10 +197,10 @@ class VilfredoMesosScheduler(Scheduler):
             if not slaveID in self.slaveExecutors:
                 self.slaveExecutors[slaveID] = \
                     SlaveExecutors(self.paretoExecutor)
-            
+
             maxTasks = self.maxTasksForOffer(offer)
             tasks = []
-            
+
             for i in range(maxTasks):
                 # If we have no free executors, go to scheduling.
                 if (self.slaveExecutors[slaveID].freeExecutors):
@@ -213,7 +213,7 @@ class VilfredoMesosScheduler(Scheduler):
                 driver.launchTasks(offer.id, tasks)
             else:
                 driver.declineOffer(offer.id)
-    
+
     def statusUpdate(self, driver, update):
         self.recordUpdateTimestamp()
         self.messagesReceived += 1
@@ -222,7 +222,7 @@ class VilfredoMesosScheduler(Scheduler):
         slaveID = update.slave_id.value
         executorID = taskID.split(TASK_SEPARATOR)[-1].strip()
         print "{}: Task [{}] is in state [{}]".format(self.now(), taskID, stateName)
-        
+
         if update.state == mesos_pb2.TASK_RUNNING:
             self.messagesRunningReceived += 1
             if update.HasField("data"):
@@ -272,11 +272,11 @@ if __name__ == "__main__":
     if len(sys.argv) != 2:
         print "Usage: {} master_ip:port".format(sys.argv[0])
         sys.exit(1)
-    
+
     baseURI = os.path.dirname(os.path.abspath(__file__))
     uris = [ "pareto_executor.py", "task_state.py" ]
     uris = [os.path.join(baseURI, uri) for uri in uris]
-    
+
     framework = mesos_pb2.FrameworkInfo()
     framework.user = ""
     framework.name = "VilfredoMesos"
@@ -291,7 +291,7 @@ if __name__ == "__main__":
         uri_proto.extract = False
 
     vilfredo = VilfredoMesosScheduler(paretoExecutor)
-    
+
     driver = MesosSchedulerDriver(vilfredo, framework, sys.argv[1])
 
     # driver.run() blocks; we run it in a separate thread
